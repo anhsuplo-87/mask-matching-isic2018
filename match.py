@@ -9,19 +9,30 @@ import argparse
 mask_folder = "./ISIC2018_Task1_Validation_GroundTruth"
 img_folder = "./ISIC2018_Task1-2_Validation_Input"
 input_mask_path = "./mask.png"
+resize_shape = (256, 256)
 
 
-def read_mask(mask_path):
-    img = Image.open(mask_path)
-    img_array = np.array(img, dtype=np.float64)
-    return img_array
+def read_mask(mask_path, mode):
+    img = Image.open(mask_path).convert(mode)
+    return img
+
+
+def get_arr(img):
+    return np.array(img, dtype=np.float64)
+
+
+def transform(img, resize_shape):
+    # resize
+    if resize_shape != (-1, -1):
+        img = img.resize(resize_shape)
+    return img
 
 
 def match_metric(input_mask, candidate_mask):
     return np.abs(np.sum(input_mask) - np.sum(candidate_mask))
 
 
-def plot_mask_matching(mask_path, candidate_mask_path, image_path, match_error):
+def plot_mask_matching(mask_path, candidate_mask_path, image_path, match_error, resize_shape):
     """
     Draws a figure with three subplots:
       1. mask_path image (grayscale)
@@ -30,9 +41,16 @@ def plot_mask_matching(mask_path, candidate_mask_path, image_path, match_error):
     Displays the basename of each path as subplot title.
     Shows match_error clearly on the figure.
     """
-    mask = np.array(Image.open(mask_path).convert("L"))
-    cand = np.array(Image.open(candidate_mask_path).convert("L"))
-    img = np.array(Image.open(image_path).convert("RGB"))
+    mask = np.array(transform(Image.open(
+        mask_path).convert("L"), resize_shape))
+    cand = np.array(
+        transform(Image.open(candidate_mask_path).convert("L"), resize_shape))
+    img = np.array(
+        transform(Image.open(image_path).convert("RGB"), resize_shape))
+
+    # mask = np.array(Image.open(mask_path).convert("L"))
+    # cand = np.array(Image.open(candidate_mask_path).convert("L"))
+    # img = np.array(Image.open(image_path).convert("RGB"))
 
     fig, axes = plt.subplots(1, 3, figsize=(14, 5))
 
@@ -61,8 +79,10 @@ def plot_mask_matching(mask_path, candidate_mask_path, image_path, match_error):
     plt.show()
 
 
-def plot_mask_matching_slider(mask_path, candidates):
-    mask = np.array(Image.open(mask_path).convert("L"))
+def plot_mask_matching_slider(mask_path, candidates, resize_shape):
+    mask = np.array(transform(Image.open(
+        mask_path).convert("L"), resize_shape))
+    # mask = np.array(Image.open(mask_path).convert("L"))
 
     fig, axes = plt.subplots(1, 3, figsize=(16, 5))
     plt.subplots_adjust(bottom=0.2)
@@ -72,8 +92,13 @@ def plot_mask_matching_slider(mask_path, candidates):
     def update_display(idx):
         cand_mask_path, img_path, err = candidates[idx]
 
-        cand_mask = np.array(Image.open(cand_mask_path).convert("L"))
-        img = np.array(Image.open(img_path).convert("RGB"))
+        cand_mask = np.array(
+            transform(Image.open(cand_mask_path).convert("L"), resize_shape))
+        img = np.array(
+            transform(Image.open(img_path).convert("RGB"), resize_shape))
+
+        # cand_mask = np.array(Image.open(cand_mask_path).convert("L"))
+        # img = np.array(Image.open(img_path).convert("RGB"))
 
         ax_mask.clear()
         ax_cand.clear()
@@ -146,21 +171,37 @@ if __name__ == "__main__":
         help="Folder with RGB images corresponding to candidate masks."
     )
 
+    parser.add_argument(
+        "--resize_shape",
+        type=str,
+        default=resize_shape,
+        help="Resize the mask image in matching pharse."
+    )
+
     args = parser.parse_args()
 
     # Overwrite defaults with user-provided values
     input_mask_path = args.input_mask_path
     mask_folder = args.mask_folder
     img_folder = args.img_folder
+    resize_shape = args.resize_shape
     # ---------------------------------------------------------
 
     print("Input:")
     print(f"Input Mask path = {input_mask_path}")
     print(f"(Candidate) Mask folder = {mask_folder}")
     print(f"Image folder = {img_folder}")
+    print(f"Resize shape = {resize_shape}")
     print()
 
-    mask_arr = read_mask(input_mask_path)
+    mask_arr = read_mask(input_mask_path, "L")
+    mask_arr = transform(mask_arr, resize_shape)
+    mask_arr = get_arr(mask_arr)
+
+    # print(mask_arr)
+    # print(mask_arr.shape)
+
+    # exit()
 
     candidate_mask_paths = [
         os.path.join(mask_folder, path)
@@ -178,7 +219,9 @@ if __name__ == "__main__":
 
             pbar.set_description(f"Checking #{mask_name}")
 
-            candidate_arr = read_mask(candidate_mask_path)
+            candidate_arr = read_mask(candidate_mask_path, "L")
+            candidate_arr = transform(candidate_arr, resize_shape)
+            candidate_arr = get_arr(candidate_arr)
 
             match_errors.append(
                 (
@@ -200,4 +243,4 @@ if __name__ == "__main__":
     print("...")
 
     print("Displaying matching results:")
-    plot_mask_matching_slider(input_mask_path, match_errors)
+    plot_mask_matching_slider(input_mask_path, match_errors, resize_shape)
