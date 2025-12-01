@@ -5,11 +5,19 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
 import argparse
+from enum import StrEnum
 
 mask_folder = "./ISIC2018_Task1_Validation_GroundTruth"
 img_folder = "./ISIC2018_Task1-2_Validation_Input"
 input_mask_path = "./mask.png"
 resize_shape = (256, 256)
+
+
+class METRIC(StrEnum):
+    CHECK_SUM = "check_sum"
+    PIXEL_WISE_DIFF = "pixel_wise_diff"
+    DICE = "dice"
+    IOU = "iou"
 
 
 def read_mask(mask_path, mode):
@@ -28,8 +36,40 @@ def transform(img, resize_shape):
     return img
 
 
-def match_metric(input_mask, candidate_mask):
-    return np.abs(np.sum(input_mask) - np.sum(candidate_mask))
+def match_metric(input_mask, candidate_mask, metric_choice):
+    def check_sum(input_mask, candidate_mask):
+        return np.abs(np.sum(input_mask) - np.sum(candidate_mask))
+
+    def pixel_wise_diff(input_mask, candidate_mask):
+        return np.sum(np.abs(input_mask.astype(np.float32) -
+                             candidate_mask.astype(np.float32)))
+
+    def dice_coefficient(input_mask, candidate_mask):
+        im = input_mask.astype(bool)
+        cm = candidate_mask.astype(bool)
+
+        intersection = np.logical_and(im, cm).sum()
+        return 1 - (2 * intersection) / (im.sum() + cm.sum() + 1e-8)
+
+    def iou(input_mask, candidate_mask):
+        im = input_mask.astype(bool)
+        cm = candidate_mask.astype(bool)
+
+        intersection = np.logical_and(im, cm).sum()
+        union = np.logical_or(im, cm).sum()
+        return 1 - intersection / (union + 1e-8)
+
+    if metric_choice == METRIC.CHECK_SUM:
+        return check_sum(input_mask, candidate_mask)
+
+    if metric_choice == METRIC.PIXEL_WISE_DIFF:
+        return pixel_wise_diff(input_mask, candidate_mask)
+
+    if metric_choice == METRIC.DICE:
+        return dice_coefficient(input_mask, candidate_mask)
+
+    if metric_choice == METRIC.IOU:
+        return iou(input_mask, candidate_mask)
 
 
 def plot_mask_matching(mask_path, candidate_mask_path, image_path, match_error, resize_shape):
@@ -175,7 +215,14 @@ if __name__ == "__main__":
         "--resize_shape",
         type=str,
         default=resize_shape,
-        help="Resize the mask image in matching pharse."
+        help="Resize the mask image in matching pharse. Default = (256, 256)."
+    )
+
+    parser.add_argument(
+        "--metric_choice",
+        type=str,
+        default=METRIC.CHECK_SUM,
+        help="Matching metric available: [check_sum, pixel_wise_diff, dice, iou]. Default = check_sum"
     )
 
     args = parser.parse_args()
@@ -185,6 +232,7 @@ if __name__ == "__main__":
     mask_folder = args.mask_folder
     img_folder = args.img_folder
     resize_shape = args.resize_shape
+    metric_choice = args.metric_choice
     # ---------------------------------------------------------
 
     print("Input:")
@@ -192,6 +240,7 @@ if __name__ == "__main__":
     print(f"(Candidate) Mask folder = {mask_folder}")
     print(f"Image folder = {img_folder}")
     print(f"Resize shape = {resize_shape}")
+    print(f"Metric choice = {metric_choice}")
     print()
 
     mask_arr = read_mask(input_mask_path, "L")
@@ -227,7 +276,7 @@ if __name__ == "__main__":
                 (
                     os.path.join(mask_folder, mask_name),
                     os.path.join(img_folder, img_name),
-                    match_metric(mask_arr, candidate_arr),
+                    match_metric(mask_arr, candidate_arr, metric_choice),
                 )
             )
 
