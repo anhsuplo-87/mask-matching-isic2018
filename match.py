@@ -4,6 +4,8 @@ from PIL import Image
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
+from scipy.spatial.distance import directed_hausdorff
+from skimage.metrics import structural_similarity as ssim
 import argparse
 from enum import StrEnum
 
@@ -18,6 +20,8 @@ class METRIC(StrEnum):
     PIXEL_WISE_DIFF = "pixel_wise_diff"
     DICE = "dice"
     IOU = "iou"
+    SSIM = "ssim"
+    HAUSDORFF = "hausdorff"
 
 
 def read_mask(mask_path, mode):
@@ -40,10 +44,12 @@ def match_metric(input_mask, candidate_mask, metric_choice):
     def check_sum(input_mask, candidate_mask):
         return np.abs(np.sum(input_mask) - np.sum(candidate_mask))
 
+    # Pixel-wise(L1) difference
     def pixel_wise_diff(input_mask, candidate_mask):
         return np.sum(np.abs(input_mask.astype(np.float32) -
                              candidate_mask.astype(np.float32)))
 
+    # Dice coefficient (very common for masks)
     def dice_coefficient(input_mask, candidate_mask):
         im = input_mask.astype(bool)
         cm = candidate_mask.astype(bool)
@@ -51,6 +57,7 @@ def match_metric(input_mask, candidate_mask, metric_choice):
         intersection = np.logical_and(im, cm).sum()
         return 1 - (2 * intersection) / (im.sum() + cm.sum() + 1e-8)
 
+    # Intersection over Union (IoU / Jaccard)
     def iou(input_mask, candidate_mask):
         im = input_mask.astype(bool)
         cm = candidate_mask.astype(bool)
@@ -58,6 +65,22 @@ def match_metric(input_mask, candidate_mask, metric_choice):
         intersection = np.logical_and(im, cm).sum()
         union = np.logical_or(im, cm).sum()
         return 1 - intersection / (union + 1e-8)
+
+    # Structural Similarity Index (SSIM)
+    def ssim_metric(input_mask, candidate_mask):
+        score, _ = ssim(input_mask, candidate_mask, full=True,
+                        data_range=np.max(input_mask))
+        return 1 - score
+
+    # Hausdorff distance (boundary-aware)
+    def hausdorff_metric(input_mask, candidate_mask):
+        p = np.column_stack(np.where(input_mask > 0))
+        q = np.column_stack(np.where(candidate_mask > 0))
+
+        return max(
+            directed_hausdorff(p, q)[0],
+            directed_hausdorff(q, p)[0]
+        )
 
     if metric_choice == METRIC.CHECK_SUM:
         return check_sum(input_mask, candidate_mask)
@@ -70,6 +93,12 @@ def match_metric(input_mask, candidate_mask, metric_choice):
 
     if metric_choice == METRIC.IOU:
         return iou(input_mask, candidate_mask)
+
+    if metric_choice == METRIC.SSIM:
+        return ssim_metric(input_mask, candidate_mask)
+
+    if metric_choice == METRIC.HAUSDORFF:
+        return hausdorff_metric(input_mask, candidate_mask)
 
 
 def plot_mask_matching(mask_path, candidate_mask_path, image_path, match_error, resize_shape):
@@ -213,7 +242,8 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--resize_shape",
-        type=str,
+        nargs=2,
+        type=int,
         default=resize_shape,
         help="Resize the mask image in matching pharse. Default = (256, 256)."
     )
@@ -222,7 +252,7 @@ if __name__ == "__main__":
         "--metric_choice",
         type=str,
         default=METRIC.CHECK_SUM,
-        help="Matching metric available: [check_sum, pixel_wise_diff, dice, iou]. Default = check_sum"
+        help="Matching metric available: [check_sum, pixel_wise_diff, dice, iou, ssim, hausdorff]. Default = check_sum"
     )
 
     args = parser.parse_args()
@@ -231,7 +261,7 @@ if __name__ == "__main__":
     input_mask_path = args.input_mask_path
     mask_folder = args.mask_folder
     img_folder = args.img_folder
-    resize_shape = args.resize_shape
+    resize_shape = tuple(args.resize_shape)
     metric_choice = args.metric_choice
     # ---------------------------------------------------------
 
